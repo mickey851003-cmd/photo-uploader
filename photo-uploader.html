@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>照片分類上傳到 Google 雲端</title>
+<style>
+  :root{--bg:#f6f7f9;--card:#fff;--text:#1f2430;--muted:#6b7280;--line:#e3e6eb;--brand:#2563eb;--ok:#15803d;--err:#b91c1c}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+  .wrap{max-width:980px;margin:0 auto;padding:24px 16px 80px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 20px;font-size:14px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+  .panel h2{font-size:15px;margin:0 0 10px}
+  label{display:block;font-size:13px;color:var(--muted);margin:8px 0 4px}
+  input[type=text],select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff;color:var(--text)}
+  input:focus,select:focus{outline:2px solid #bfdbfe;border-color:var(--brand)}
+  button{border:0;border-radius:8px;padding:9px 14px;font-size:14px;cursor:pointer;background:var(--brand);color:#fff}
+  button.ghost{background:#eef1f6;color:var(--text)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .folder-row{display:grid;grid-template-columns:1fr 1.4fr auto;gap:8px;margin-bottom:8px}
+  @media(max-width:640px){.folder-row{grid-template-columns:1fr}}
+  .drop{border:2px dashed #c4cbd6;border-radius:12px;padding:28px;text-align:center;color:var(--muted);background:#fafbfc;cursor:pointer}
+  .drop.over{border-color:var(--brand);background:#eff6ff}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+  .card img{width:100%;height:170px;object-fit:cover;background:#eee}
+  .card .body{padding:10px;display:flex;flex-direction:column;gap:6px}
+  .orig{font-size:12px;color:var(--muted);word-break:break-all}
+  .final{font-size:12px;color:var(--text);word-break:break-all}
+  .status{font-size:13px;min-height:20px;word-break:break-all}
+  .status.ok{color:var(--ok)}.status.err{color:var(--err)}.status.busy{color:var(--brand)}
+  .small{font-size:12px;color:var(--muted)}
+  .bulk{display:grid;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+  .bulk .line{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .bulk .line .lab{font-size:13px;color:var(--muted);min-width:96px}
+  .bulk input[type=text],.bulk select{width:auto;flex:1;min-width:150px}
+  details summary{cursor:pointer;font-weight:600;font-size:14px}
+  details ol{padding-left:20px;font-size:13px;color:#374151}
+  code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12px}
+  .rules{font-size:13px;color:#374151;margin:0;padding-left:18px}
+  .bar{position:sticky;bottom:0;background:rgba(246,247,249,.95);backdrop-filter:blur(6px);padding:12px 0;border-top:1px solid var(--line);margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>照片分類上傳到 Google 雲端</h1>
+  <p class="sub">選擇照片 → 輸入文字（會變成檔名）→ 選擇資料夾與子資料夾 → 一鍵上傳到 Google 雲端硬碟。</p>
+
+  <div class="panel">
+    <details>
+      <summary>第一次使用：設定教學（約 5 分鐘）</summary>
+      <ol>
+        <li>到 <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> 建立專案，並在「API 和服務」啟用 <b>Google Drive API</b>。</li>
+        <li>「OAuth 同意畫面」選「外部」，把你自己的 Gmail 加入「測試使用者」。</li>
+        <li>「憑證」→「建立憑證」→「OAuth 用戶端 ID」→ 類型選「網頁應用程式」。在「已授權的 JavaScript 來源」加入你開啟本頁的網址（只填網域，例如 <code>http://localhost:8000</code> 或 <code>https://帳號.github.io</code>）。</li>
+        <li>複製產生的「用戶端 ID」，貼到下方欄位。</li>
+        <li>本頁不能直接雙擊開啟（file://），請用本機伺服器或放到有 https 的網站。</li>
+      </ol>
+    </details>
+  </div>
+
+  <div class="panel">
+    <h2>1. Google 帳號連線</h2>
+    <label for="clientId">OAuth 用戶端 ID</label>
+    <input id="clientId" type="text" placeholder="xxxxxxxx.apps.googleusercontent.com">
+    <div class="row" style="margin-top:10px">
+      <button id="btnAuth">登入 Google</button>
+      <span id="authState" class="small">尚未登入</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>2. 設定分類資料夾</h2>
+    <p class="small" style="margin-top:0">「資料夾連結或 ID」可貼上雲端資料夾網址；留空則在「上層資料夾」底下依名稱尋找，找不到就自動建立。</p>
+    <label for="parent">上層資料夾連結或 ID（選填，留空＝我的雲端硬碟根目錄）</label>
+    <input id="parent" type="text" placeholder="https://drive.google.com/drive/folders/…">
+    <div style="margin-top:12px" id="folderList"></div>
+    <button class="ghost" id="addFolder">＋ 新增分類資料夾</button>
+    <ul class="rules" style="margin-top:12px">
+      <li>照片沒有選資料夾：自動存入以今天日期命名的資料夾（例如 <code>20261023</code>）。</li>
+      <li>照片沒有輸入文字：檔名自動命名為「資料夾名稱_日期_流水號」（例如 <code>風景_20261023_01.jpg</code>），流水號會接續雲端裡已有的號碼。</li>
+      <li>填了「子資料夾」：會在所選資料夾裡再建立（或沿用）該名稱的子資料夾。</li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <h2>3. 選擇照片</h2>
+    <div class="drop" id="drop">把照片拖曳到這裡，或點擊選擇（可多選）</div>
+    <input id="file" type="file" accept="image/*" multiple hidden>
+
+    <div class="bulk">
+      <div class="line">
+        <span class="lab">批次套用資料夾</span>
+        <select id="bulkFolder"></select>
+        <button class="ghost" id="btnBulk">套用到全部</button>
+      </div>
+      <div class="line">
+        <span class="lab">批次套用子資料夾</span>
+        <input id="bulkSub" type="text" list="subList" placeholder="子資料夾名稱（留空＝不建立）">
+        <button class="ghost" id="btnSubToday">填入今天日期</button>
+        <button class="ghost" id="btnBulkSub">套用到全部</button>
+      </div>
+    </div>
+    <datalist id="subList"></datalist>
+
+    <div class="cards" id="cards"></div>
+  </div>
+
+  <div class="bar">
+    <button id="btnUpload" disabled>上傳到 Google 雲端</button>
+    <button class="ghost" id="btnClear" disabled>清除清單</button>
+    <span id="summary" class="small"></span>
+  </div>
+</div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const SCOPE = 'https://www.googleapis.com/auth/drive';
+  const store = {
+    get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
+    set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+  };
+
+  let token = null, tokenClient = null;
+  let folders = store.get('folders', [{name:'風景', id:''},{name:'人物', id:''},{name:'美食', id:''}]);
+  let subHistory = store.get('subs', []);
+  let items = [];
+  let uid = 0;
+  const folderCache = {};
+  let seqCache = {};
+
+  const pad = n => (n < 10 ? '0' + n : String(n));
+  const today = () => { const d = new Date(); return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()); };
+  const clean = s => s.trim().replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').replace(/^\.+/, '');
+  const folderLabel = f => (f && f.name.trim()) ? clean(f.name) : '照片';
+  const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  /* ---------- 設定 ---------- */
+  $('#clientId').value = store.get('clientId', '');
+  $('#parent').value = store.get('parent', '');
+  $('#clientId').addEventListener('change', e => store.set('clientId', e.target.value.trim()));
+  $('#parent').addEventListener('change', e => store.set('parent', e.target.value.trim()));
+
+  function parseId(s){
+    s = (s || '').trim();
+    if(!s) return '';
+    const m = s.match(/folders\/([A-Za-z0-9_-]+)/) || s.match(/[?&]id=([A-Za-z0-9_-]+)/);
+    return m ? m[1] : s;
+  }
+
+  function renderFolders(){
+    const box = $('#folderList');
+    box.innerHTML = '';
+    folders.forEach((f, i) => {
+      const row = document.createElement('div');
+      row.className = 'folder-row';
+      row.innerHTML = '<input type="text" placeholder="分類名稱，例如：風景"><input type="text" placeholder="資料夾連結或 ID（選填）"><button class="ghost">刪除</button>';
+      const [n, id, del] = row.children;
+      n.value = f.name; id.value = f.id;
+      n.addEventListener('input', () => { f.name = n.value; saveFolders(); });
+      id.addEventListener('input', () => { f.id = id.value; saveFolders(); });
+      del.addEventListener('click', () => {
+        folders.splice(i, 1);
+        items.forEach(it => {
+          if(it.folder === String(i)) it.folder = '';
+          else if(it.folder !== '' && Number(it.folder) > i) it.folder = String(Number(it.folder) - 1);
+        });
+        saveFolders(); renderFolders(); syncCardSelects();
+      });
+      box.appendChild(row);
+    });
+    refreshSelects();
+  }
+  function saveFolders(){ store.set('folders', folders); refreshSelects(); }
+  $('#addFolder').addEventListener('click', () => { folders.push({name:'', id:''}); saveFolders(); renderFolders(); });
+
+  function folderOptions(sel){
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">（未選擇：自動存入日期資料夾）</option>';
+    folders.forEach((f, i) => {
+      if(!f.name.trim() && !f.id.trim()) return;
+      const o = document.createElement('option');
+      o.value = String(i);
+      o.textContent = f.name.trim() || ('資料夾 ' + (i + 1));
+      sel.appendChild(o);
+    });
+    if([...sel.options].some(o => o.value === cur)) sel.value = cur;
+  }
+  function refreshSelects(){
+    folderOptions($('#bulkFolder'));
+    document.querySelectorAll('.card .sel').forEach(folderOptions);
+    refreshPreviews();
+  }
+  function syncCardSelects(){
+    document.querySelectorAll('.card').forEach(card => {
+      const it = items.find(x => x.id === Number(card.dataset.id));
+      if(it) card.querySelector('.sel').value = it.folder;
+    });
+    refreshPreviews();
+  }
+  function refreshSubList(){
+    $('#subList').innerHTML = '';
+    subHistory.forEach(s => { const o = document.createElement('option'); o.value = s; $('#subList').appendChild(o); });
+  }
+  function rememberSub(s){
+    if(!s) return;
+    subHistory = [s, ...subHistory.filter(x => x !== s)].slice(0, 30);
+    store.set('subs', subHistory);
+    refreshSubList();
+  }
+
+  /* ---------- 登入 ---------- */
+  $('#btnAuth').addEventListener('click', () => {
+    const cid = $('#clientId').value.trim();
+    if(!cid){ alert('請先貼上 OAuth 用戶端 ID'); return; }
+    store.set('clientId', cid);
+    if(!window.google || !google.accounts){ alert('Google 登入元件尚未載入，請稍候再試或檢查網路。'); return; }
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: cid,
+      scope: SCOPE,
+      callback: resp => {
+        if(resp.error){ $('#authState').textContent = '登入失敗：' + resp.error; return; }
+        token = {value: resp.access_token, exp: Date.now() + (resp.expires_in - 60) * 1000};
+        $('#authState').textContent = '已登入 ✔';
+        updateButtons();
+      }
+    });
+    tokenClient.requestAccessToken({prompt: ''});
+  });
+
+  function ensureToken(){
+    return new Promise((resolve, reject) => {
+      if(token && Date.now() < token.exp) return resolve(token.value);
+      if(!tokenClient) return reject(new Error('請先登入 Google'));
+      tokenClient.callback = resp => {
+        if(resp.error) return reject(new Error(resp.error));
+        token = {value: resp.access_token, exp: Date.now() + (resp.expires_in - 60) * 1000};
+        resolve(token.value);
+      };
+      tokenClient.requestAccessToken({prompt: ''});
+    });
+  }
+
+  /* ---------- Drive API ---------- */
+  async function api(url, opts = {}){
+    const t = await ensureToken();
+    const r = await fetch(url, {...opts, headers: {...(opts.headers || {}), Authorization: 'Bearer ' + t}});
+    if(!r.ok){
+      let msg = r.status + ' ' + r.statusText;
+      try{ const j = await r.json(); if(j.error && j.error.message) msg = j.error.message; }catch(e){}
+      throw new Error(msg);
+    }
+    return r;
+  }
+  const q = s => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const LIST = 'https://www.googleapis.com/drive/v3/files';
+  const FLAGS = '&supportsAllDrives=true&includeItemsFromAllDrives=true';
+
+  // 在 parentId 底下尋找同名資料夾，找不到就建立
+  async function ensureFolder(name, parentId){
+    const key = parentId + '/' + name;
+    if(folderCache[key]) return folderCache[key];
+    const query = `name='${q(name)}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`;
+    let r = await api(LIST + '?fields=files(id,name)' + FLAGS + '&q=' + encodeURIComponent(query));
+    const j = await r.json();
+    let id;
+    if(j.files && j.files.length){ id = j.files[0].id; }
+    else{
+      r = await api(LIST + '?fields=id&supportsAllDrives=true', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId]})
+      });
+      id = (await r.json()).id;
+    }
+    folderCache[key] = id;
+    return id;
+  }
+
+  const rootParent = () => parseId($('#parent').value) || 'root';
+
+  // 決定這張照片最終要放的雲端資料夾（含日期資料夾、子資料夾）
+  async function resolveTarget(it, dateStr){
+    let base, baseName;
+    if(it.folder === ''){
+      base = await ensureFolder(dateStr, rootParent());
+      baseName = dateStr;
+    }else{
+      const f = folders[Number(it.folder)];
+      const direct = parseId(f.id);
+      baseName = folderLabel(f);
+      if(direct) base = direct;
+      else{
+        if(!f.name.trim()) throw new Error('此資料夾沒有名稱也沒有連結');
+        base = await ensureFolder(clean(f.name), rootParent());
+      }
+    }
+    const sub = clean(it.sub || '');
+    const id = sub ? await ensureFolder(sub, base) : base;
+    return {id, path: baseName + (sub ? '/' + sub : '')};
+  }
+
+  async function uniqueName(name, parentId){
+    const dot = name.lastIndexOf('.');
+    const base = dot > 0 ? name.slice(0, dot) : name;
+    const ext = dot > 0 ? name.slice(dot) : '';
+    let n = 1, cand = name;
+    while(true){
+      const query = `name='${q(cand)}' and '${parentId}' in parents and trashed=false`;
+      const r = await api(LIST + '?fields=files(id)' + FLAGS + '&q=' + encodeURIComponent(query));
+      const j = await r.json();
+      if(!j.files || !j.files.length) return cand;
+      n++; cand = `${base} (${n})${ext}`;
+    }
+  }
+
+  // 取得下一個流水號：先看雲端資料夾裡已有的「前綴_數字」最大值，再往上加
+  async function nextSeq(parentId, prefix){
+    const key = parentId + '|' + prefix;
+    if(seqCache[key] === undefined){
+      const re = new RegExp('^' + escRe(prefix) + '_(\\d+)(?:\\.[^.]*)?$');
+      let max = 0, pageToken = '', pages = 0;
+      do{
+        const query = `'${parentId}' in parents and trashed=false`;
+        const r = await api(LIST + '?pageSize=1000&fields=nextPageToken,files(name)' + FLAGS + '&q=' + encodeURIComponent(query) + (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : ''));
+        const j = await r.json();
+        (j.files || []).forEach(f => { const m = f.name.match(re); if(m) max = Math.max(max, parseInt(m[1], 10)); });
+        pageToken = j.nextPageToken || '';
+        pages++;
+      }while(pageToken && pages < 10);
+      seqCache[key] = max;
+    }
+    seqCache[key]++;
+    return seqCache[key];
+  }
+
+  async function uploadFile(file, name, parentId){
+    const t = await ensureToken();
+    const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + t,
+        'Content-Type': 'application/json; charset=UTF-8',
+        'X-Upload-Content-Type': file.type || 'application/octet-stream',
+        'X-Upload-Content-Length': String(file.size)
+      },
+      body: JSON.stringify({name, parents: [parentId]})
+    });
+    if(!init.ok){
+      let msg = init.status + ' ' + init.statusText;
+      try{ const j = await init.json(); if(j.error && j.error.message) msg = j.error.message; }catch(e){}
+      throw new Error(msg);
+    }
+    const loc = init.headers.get('Location');
+    if(!loc) throw new Error('無法取得上傳位址');
+    const put = await fetch(loc, {method: 'PUT', headers: {'Content-Type': file.type || 'application/octet-stream'}, body: file});
+    if(!put.ok) throw new Error('上傳失敗：' + put.status);
+    return put.json();
+  }
+
+  /* ---------- 檔名處理 ---------- */
+  function extOf(it){
+    const orig = it.file.name;
+    const dot = orig.lastIndexOf('.');
+    return dot > 0 ? orig.slice(dot) : '';
+  }
+  function textName(it){
+    const ext = extOf(it);
+    const base = clean(it.text);
+    if(ext && base.toLowerCase().endsWith(ext.toLowerCase())) return base;
+    return base + ext;
+  }
+  function autoPrefix(it, dateStr){
+    return it.folder === '' ? dateStr : folderLabel(folders[Number(it.folder)]) + '_' + dateStr;
+  }
+  // 畫面上的預覽（實際流水號會依雲端現有檔案調整）
+  function previewName(it){
+    if(clean(it.text)) return {name: textName(it), auto: false};
+    const group = items.filter(x => !x.done && !clean(x.text) && x.folder === it.folder && clean(x.sub || '') === clean(it.sub || ''));
+    const n = Math.max(group.indexOf(it), 0) + 1;
+    return {name: autoPrefix(it, today()) + '_' + pad(n) + extOf(it), auto: true};
+  }
+  function refreshPreviews(){
+    document.querySelectorAll('.card').forEach(card => {
+      const it = items.find(x => x.id === Number(card.dataset.id));
+      if(!it || it.done) return;
+      const p = previewName(it);
+      card.querySelector('.final').textContent = (p.auto ? '自動命名：' : '新檔名：') + p.name;
+    });
+  }
+
+  /* ---------- 照片清單 ---------- */
+  function addFiles(list){
+    [...list].filter(f => f.type.startsWith('image/')).forEach(file => {
+      const it = {id: ++uid, file, text: '', folder: '', sub: '', url: URL.createObjectURL(file), done: false};
+      items.push(it);
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.dataset.id = it.id;
+      card.innerHTML = `
+        <img alt="">
+        <div class="body">
+          <div class="orig"></div>
+          <input type="text" class="txt" placeholder="輸入文字（留空＝自動命名）">
+          <div class="final"></div>
+          <select class="sel"></select>
+          <input type="text" class="sub" list="subList" placeholder="子資料夾（選填）">
+          <div class="status"></div>
+          <div class="row"><button class="ghost rm">移除</button><button class="ghost dl">下載改名檔</button></div>
+        </div>`;
+      card.querySelector('img').src = it.url;
+      card.querySelector('.orig').textContent = '原檔名：' + file.name;
+      const txt = card.querySelector('.txt'), sel = card.querySelector('.sel'), sub = card.querySelector('.sub');
+      folderOptions(sel);
+      txt.addEventListener('input', () => { it.text = txt.value; refreshPreviews(); });
+      sel.addEventListener('change', () => { it.folder = sel.value; refreshPreviews(); });
+      sub.addEventListener('input', () => { it.sub = sub.value; refreshPreviews(); });
+      card.querySelector('.rm').addEventListener('click', () => {
+        items = items.filter(x => x.id !== it.id);
+        URL.revokeObjectURL(it.url);
+        card.remove(); updateButtons(); refreshPreviews();
+      });
+      card.querySelector('.dl').addEventListener('click', () => {
+        const a = document.createElement('a');
+        a.href = it.url; a.download = previewName(it).name; a.click();
+      });
+      $('#cards').appendChild(card);
+    });
+    updateButtons();
+    refreshPreviews();
+  }
+
+  function setStatus(it, cls, msg){
+    const el = document.querySelector(`.card[data-id="${it.id}"] .status`);
+    if(el){ el.className = 'status ' + cls; el.textContent = msg; }
+  }
+
+  function updateButtons(){
+    const pending = items.filter(i => !i.done);
+    $('#btnUpload').disabled = !(token && pending.length);
+    $('#btnClear').disabled = !items.length;
+    const noFolder = pending.filter(i => i.folder === '').length;
+    $('#summary').textContent = items.length
+      ? `共 ${items.length} 張，待上傳 ${pending.length} 張` + (noFolder ? `（其中 ${noFolder} 張未選資料夾，將存入 ${today()}）` : '')
+      : '';
+    if(!token && pending.length) $('#summary').textContent += '　請先登入 Google';
+  }
+
+  const drop = $('#drop'), fileInput = $('#file');
+  drop.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
+  ['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => addFiles(e.dataTransfer.files));
+
+  $('#btnBulk').addEventListener('click', () => {
+    const v = $('#bulkFolder').value;
+    items.filter(i => !i.done).forEach(i => { i.folder = v; });
+    syncCardSelects(); updateButtons();
+  });
+  $('#btnSubToday').addEventListener('click', () => { $('#bulkSub').value = today(); });
+  $('#btnBulkSub').addEventListener('click', () => {
+    const v = $('#bulkSub').value;
+    items.filter(i => !i.done).forEach(i => { i.sub = v; });
+    document.querySelectorAll('.card').forEach(card => {
+      const it = items.find(x => x.id === Number(card.dataset.id));
+      if(it && !it.done) card.querySelector('.sub').value = v;
+    });
+    refreshPreviews();
+  });
+
+  $('#btnClear').addEventListener('click', () => {
+    items.forEach(i => URL.revokeObjectURL(i.url));
+    items = []; $('#cards').innerHTML = ''; updateButtons();
+  });
+
+  /* ---------- 上傳 ---------- */
+  $('#btnUpload').addEventListener('click', async () => {
+    const btn = $('#btnUpload');
+    btn.disabled = true;
+    seqCache = {};
+    const dateStr = today();
+    let ok = 0, fail = 0;
+    for(const it of items.filter(i => !i.done)){
+      try{
+        setStatus(it, 'busy', '準備資料夾…');
+        const target = await resolveTarget(it, dateStr);
+        let name;
+        if(clean(it.text)){
+          name = await uniqueName(textName(it), target.id);
+        }else{
+          const prefix = autoPrefix(it, dateStr);
+          const n = await nextSeq(target.id, prefix);
+          name = prefix + '_' + pad(n) + extOf(it);
+        }
+        setStatus(it, 'busy', '上傳中…');
+        const res = await uploadFile(it.file, name, target.id);
+        it.done = true; ok++;
+        rememberSub(clean(it.sub || ''));
+        const el = document.querySelector(`.card[data-id="${it.id}"] .status`);
+        el.className = 'status ok';
+        el.textContent = '✔ 已上傳：' + target.path + '/' + (res.name || name);
+        const fin = document.querySelector(`.card[data-id="${it.id}"] .final`);
+        if(fin) fin.textContent = '檔名：' + (res.name || name);
+        if(res.webViewLink){
+          const a = document.createElement('a');
+          a.href = res.webViewLink; a.target = '_blank'; a.rel = 'noopener'; a.textContent = ' 開啟';
+          el.appendChild(a);
+        }
+      }catch(e){
+        fail++; setStatus(it, 'err', '✖ ' + e.message);
+      }
+    }
+    refreshPreviews();
+    updateButtons();
+    $('#summary').textContent = `完成：成功 ${ok} 張，失敗 ${fail} 張` + (fail ? '（可再按一次上傳重試失敗的照片）' : '');
+  });
+
+  refreshSubList();
+  renderFolders();
+  updateButtons();
+})();
+</script>
+</body>
+</html>
